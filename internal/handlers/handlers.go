@@ -35,7 +35,6 @@ func (h *Handler) CreateRunbook(c *gin.Context) {
 		return
 	}
 	
-	// Validate YAML
 	if err := h.parser.Validate(rb.Content); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid YAML: " + err.Error()})
 		return
@@ -135,7 +134,7 @@ func (h *Handler) ExecuteRunbook(c *gin.Context) {
 	h.executions[exec.ID] = exec
 	
 	log.Printf("Executed runbook: %s (ID: %d)", rb.Name, rb.ID)
-	_ = parsed // Would execute steps here
+	_ = parsed
 	
 	c.JSON(http.StatusAccepted, exec)
 }
@@ -205,6 +204,3 @@ func (h *Handler) DeleteProvider(c *gin.Context) {
 	}
 	c.JSON(http.StatusNotFound, gin.H{"error": "Provider not found"})
 }
-EOF
-
-echo "Improvements applied!"
