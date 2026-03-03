@@ -4,23 +4,27 @@ import (
 	"net/http"
 	"strconv"
 	"log"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/dablon/runflow/internal/parser"
+	"github.com/dablon/runflow/internal/executor"
 	"github.com/dablon/runflow/internal/models"
 )
 
 type Handler struct {
-	parser     *parser.Parser
+	parser    *parser.Parser
+	exec     *executor.Executor
 	runbooks   map[uint]*models.Runbook
 	executions map[uint]*models.Execution
 	providers  map[uint]*models.Provider
 	nextID     uint
 }
 
-func New(p *parser.Parser) *Handler {
+func New(p *parser.Parser, e *executor.Executor) *Handler {
 	return &Handler{
-		parser:     p,
+		parser:    p,
+		exec:     e,
 		runbooks:   make(map[uint]*models.Runbook),
 		executions: make(map[uint]*models.Execution),
 		providers:  make(map[uint]*models.Provider),
@@ -31,7 +35,7 @@ func New(p *parser.Parser) *Handler {
 func (h *Handler) CreateRunbook(c *gin.Context) {
 	var rb models.Runbook
 	if err := c.ShouldBindJSON(&rb); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
 		return
 	}
 	
@@ -86,7 +90,7 @@ func (h *Handler) UpdateRunbook(c *gin.Context) {
 	rb.ID = uint(id)
 	h.runbooks[rb.ID] = &rb
 	
-	log.Printf("Updated runbook: %d", rb.ID)
+	log.Printf("Updated runbook: %d", id)
 	c.JSON(http.StatusOK, rb)
 }
 
@@ -121,20 +125,73 @@ func (h *Handler) ExecuteRunbook(c *gin.Context) {
 	
 	parsed, err := h.parser.Parse(rb.Content)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Parse error: " + err.Error()})
 		return
 	}
 	
+	// Create execution record
 	exec := &models.Execution{
-		ID:       h.nextID,
+		ID:        h.nextID,
 		RunbookID: rb.ID,
-		Status:   "success",
+		Status:    "running",
+		StartedAt: time.Now(),
 	}
 	h.nextID++
 	h.executions[exec.ID] = exec
 	
-	log.Printf("Executed runbook: %s (ID: %d)", rb.Name, rb.ID)
-	_ = parsed
+	// Execute steps REAL (not mocked!)
+	go func() {
+		var output string
+		success := true
+		
+		// Execute each step
+		for _, step := range parsed.Steps {
+			log.Printf("Executing step: %s", step.Name)
+			
+			// Set defaults
+			if step.Timeout == 0 {
+				step.Timeout = 300 // 5 min default
+			}
+			
+			result := h.exec.ExecuteStep(step, parsed.Variables)
+			
+			output += "=== " + step.Name + " ===\n"
+			output += result.Output + "\n"
+			
+			if !result.Success {
+				output += "ERROR: " + result.Error + "\n"
+				success = false
+				
+				// Run on_failure steps
+				for _, failStep := range parsed.OnFailure {
+					output += "=== ON FAILURE: " + failStep.Name + " ===\n"
+					failResult := h.exec.ExecuteStep(failStep, parsed.Variables)
+					output += failResult.Output + "\n"
+				}
+				break
+			}
+		}
+		
+		if success {
+			// Run on_success steps
+			for _, succStep := range parsed.OnSuccess {
+				output += "=== ON SUCCESS: " + succStep.Name + " ===\n"
+				succResult := h.exec.ExecuteStep(succStep, parsed.Variables)
+				output += succResult.Output + "\n"
+			}
+		}
+		
+		// Update execution
+		now := time.Now()
+		exec.Status = "success"
+		if !success {
+			exec.Status = "failure"
+		}
+		exec.Output = output
+		exec.FinishedAt = &now
+		
+		log.Printf("Execution %d completed: %s", exec.ID, exec.Status)
+	}()
 	
 	c.JSON(http.StatusAccepted, exec)
 }
@@ -161,7 +218,7 @@ func (h *Handler) GetExecutionLogs(c *gin.Context) {
 	}
 	
 	if exec, ok := h.executions[uint(id)]; ok {
-		c.JSON(http.StatusOK, gin.H{"logs": exec.Output})
+		c.JSON(http.StatusOK, gin.H{"status": exec.Status, "logs": exec.Output})
 		return
 	}
 	c.JSON(http.StatusNotFound, gin.H{"error": "Execution not found"})

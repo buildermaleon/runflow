@@ -1,21 +1,19 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 
-	"github.com/dablon/runflow/internal/config"
 	"github.com/dablon/runflow/internal/handlers"
 	"github.com/dablon/runflow/internal/parser"
+	"github.com/dablon/runflow/internal/executor"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	_ = config.Load()
-	
 	p := parser.New()
-	h := handlers.New(p)
+	e := executor.New()
+	h := handlers.New(p, e)
 	
 	r := gin.Default()
 	
@@ -55,5 +53,3 @@ func main() {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
-
-var _ = fmt.Println
