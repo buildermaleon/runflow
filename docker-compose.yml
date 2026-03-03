@@ -6,8 +6,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - DATABASE_URL=postgres://runflow:runflow@db:5432/runflow
-      - REDIS_URL=redis://cache:6379
+      - DATABASE_URL=${DATABASE_URL:-postgres://runflow:password@db:5432/runflow}
+      - REDIS_URL=${REDIS_URL:-redis://cache:6379}
     depends_on:
       - db
       - cache
@@ -15,9 +15,9 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      - POSTGRES_USER=runflow
-      - POSTGRES_PASSWORD=runflow
-      - POSTGRES_DB=runflow
+      - POSTGRES_USER=${POSTGRES_USER:-runflow}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - POSTGRES_DB=${POSTGRES_DB:-runflow}
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
